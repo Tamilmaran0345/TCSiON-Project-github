@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StratosEvent — Approval Panel</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav class="nav-main">
+  <div class="nav-inner">
+    <a class="nav-brand" href="../index.html">⬡ Stratos<span>Event</span></a>
+    <div class="nav-links">
+      <a href="../index.html"><span>Events</span></a>
+      <a href="register.html"><span>Register</span></a>
+      <a href="admin-dashboard.html"><span>Dashboard</span></a>
+      <a href="admin-approval.html" class="active"><span>Approvals</span></a>
+    </div>
+  </div>
+</nav>
+
+<div class="page-wrapper">
+  <div class="page-header">
+    <h1>Registration Approvals</h1>
+    <p>Review, approve, or reject pending registration requests.</p>
+  </div>
+
+  <div id="approvalAlert"></div>
+
+  <!-- Summary Counts -->
+  <div class="grid-3" id="approvalStats" style="margin-bottom:2rem"></div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <input type="search" id="searchInput" class="form-control search-input" placeholder="Search by name, email or event…" />
+    <select id="statusFilter" class="form-control" style="max-width:160px">
+      <option value="Pending">Pending</option>
+      <option value="Approved">Approved</option>
+      <option value="Rejected">Rejected</option>
+      <option value="">All</option>
+    </select>
+    <select id="eventFilter" class="form-control" style="max-width:220px">
+      <option value="">All Events</option>
+    </select>
+    <button class="btn btn-ghost btn-sm" onclick="loadRegistrations()">↺ Refresh</button>
+  </div>
+
+  <!-- Table -->
+  <div id="regTableContainer">
+    <div class="page-loader"><div class="loader"></div><span>Loading registrations…</span></div>
+  </div>
+</div>
+
+<!-- ── Review Modal ───────────────────────────────────────────── -->
+<div class="modal-overlay" id="reviewModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <h2 id="reviewModalTitle">Review Registration</h2>
+      <button class="modal-close" onclick="closeReview()">✕</button>
+    </div>
+    <div id="reviewInfo" style="margin-bottom:1.25rem;padding:1rem;background:var(--bg-surface);border-radius:var(--radius);border:1px solid var(--border);font-size:0.875rem;line-height:1.8"></div>
+    <div id="reviewAlert"></div>
+    <div class="form-group">
+      <label class="form-label">Notes (Optional)</label>
+      <textarea class="form-control" id="reviewNotes" rows="2" placeholder="Add a note for this decision…"></textarea>
+    </div>
+    <div style="display:flex;gap:0.75rem">
+      <button class="btn btn-success" style="flex:1" id="approveBtn" onclick="submitDecision('approve')">✓ Approve</button>
+      <button class="btn btn-danger"  style="flex:1" id="rejectBtn"  onclick="submitDecision('reject')">✕ Reject</button>
+      <button class="btn btn-ghost" onclick="closeReview()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/api.js"></script>
+<script>
+  let allRegs = [];
+  let currentRegId = null;
+
+  // ── Load Registrations ───────────────────────────────────────
+  async function loadRegistrations() {
+    const status   = document.getElementById("statusFilter").value;
+    const event_id = document.getElementById("eventFilter").value;
+    let endpoint = "/registrations?";
+    if (status)   endpoint += `status=${status}&`;
+    if (event_id) endpoint += `event_id=${event_id}&`;
+
+    document.getElementById("regTableContainer").innerHTML =
+      `<div class="page-loader"><div class="loader"></div><span>Loading…</span></div>`;
+    try {
+      const { data } = await api.get(endpoint);
+      allRegs = data;
+      renderStats(data);
+      renderTable(data);
+    } catch (err) {
+      document.getElementById("regTableContainer").innerHTML =
+        `<div class="alert alert-error">Failed to load registrations: ${err.message}</div>`;
+    }
+  }
+
+  // ── Populate Event Filter Dropdown ───────────────────────────
+  async function loadEventFilter() {
+    try {
+      const { data } = await api.get("/events");
+      const sel = document.getElementById("eventFilter");
+      data.forEach(e => {
+        const opt = document.createElement("option");
+        opt.value = e.id;
+        opt.textContent = e.title;
+        sel.appendChild(opt);
+      });
+    } catch (_) {}
+  }
+
+  function renderStats(regs) {
+    const pending  = regs.filter(r => r.status === "Pending").length;
+    const approved = regs.filter(r => r.status === "Approved").length;
+    const rejected = regs.filter(r => r.status === "Rejected").length;
+    document.getElementById("approvalStats").innerHTML = `
+      <div class="stat-card amber">
+        <div class="stat-icon">◉</div>
+        <div class="stat-value">${pending}</div>
+        <div class="stat-label">Pending Review</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">✓</div>
+        <div class="stat-value">${approved}</div>
+        <div class="stat-label">Approved</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-icon">✕</div>
+        <div class="stat-value">${rejected}</div>
+        <div class="stat-label">Rejected</div>
+      </div>
+    `;
+  }
+
+  function renderTable(regs) {
+    const q = document.getElementById("searchInput").value.toLowerCase();
+    const filtered = q
+      ? regs.filter(r =>
+          r.full_name.toLowerCase().includes(q) ||
+          r.email.toLowerCase().includes(q) ||
+          r.event_title.toLowerCase().includes(q)
+        )
+      : regs;
+
+    if (!filtered.length) {
+      document.getElementById("regTableContainer").innerHTML =
+        `<div class="empty-state"><div class="empty-icon">◎</div><p>No registrations found.</p></div>`;
+      return;
+    }
+
+    document.getElementById("regTableContainer").innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>#</th><th>Attendee</th><th>Contact</th><th>Event</th>
+            <th>Registered</th><th>Status</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+            ${filtered.map(r => `
+              <tr>
+                <td style="color:var(--text-muted)">${r.id}</td>
+                <td>
+                  <strong>${r.full_name}</strong>
+                  ${r.department ? `<br><span style="font-size:0.75rem;color:var(--text-muted)">${r.department}</span>` : ''}
+                </td>
+                <td>
+                  <span style="font-size:0.8125rem">${r.email}</span><br>
+                  <span style="font-size:0.75rem;color:var(--text-muted)">${r.phone}</span>
+                </td>
+                <td>
+                  <strong style="font-size:0.875rem">${r.event_title}</strong><br>
+                  <span style="font-size:0.75rem;color:var(--text-muted)">${formatDate(r.event_date)}</span>
+                </td>
+                <td style="font-size:0.8125rem;color:var(--text-secondary)">${formatDateTime(r.registered_at)}</td>
+                <td>${statusBadge(r.status)}</td>
+                <td>
+                  ${r.status === 'Pending'
+                    ? `<button class="btn btn-outline btn-sm" onclick="openReview(${r.id})">Review</button>`
+                    : `<span style="font-size:0.75rem;color:var(--text-muted)">${r.reviewed_at ? formatDate(r.reviewed_at) : '—'}</span>`
+                  }
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:0.75rem;font-size:0.8125rem;color:var(--text-muted)">
+        Showing ${filtered.length} of ${regs.length} record(s)
+      </p>
+    `;
+  }
+
+  // ── Review Modal ─────────────────────────────────────────────
+  function openReview(id) {
+    const reg = allRegs.find(r => r.id === id);
+    if (!reg) return;
+    currentRegId = id;
+    document.getElementById("reviewInfo").innerHTML = `
+      <strong style="color:var(--text-primary)">${reg.full_name}</strong><br>
+      <span style="color:var(--text-secondary)">✉ ${reg.email} · ☏ ${reg.phone}</span><br>
+      ${reg.department ? `<span style="color:var(--text-secondary)">🏢 ${reg.department}</span><br>` : ''}
+      <span style="color:var(--teal)">Event: ${reg.event_title}</span><br>
+      <span style="color:var(--text-muted);font-size:0.8125rem">Registered: ${formatDateTime(reg.registered_at)}</span>
+    `;
+    document.getElementById("reviewNotes").value = "";
+    document.getElementById("reviewAlert").innerHTML = "";
+    document.getElementById("reviewModal").classList.add("open");
+  }
+
+  function closeReview() {
+    document.getElementById("reviewModal").classList.remove("open");
+    currentRegId = null;
+  }
+
+  async function submitDecision(decision) {
+    if (!currentRegId) return;
+    const notes    = document.getElementById("reviewNotes").value.trim();
+    const btnId    = decision === "approve" ? "approveBtn" : "rejectBtn";
+    const label    = decision === "approve" ? "✓ Approve" : "✕ Reject";
+    setLoading(btnId, true);
+    try {
+      const res = await api.patch(`/registrations/${currentRegId}/${decision}`, { notes });
+      showAlert("reviewAlert", "success", res.message);
+      setTimeout(() => { closeReview(); loadRegistrations(); }, 1500);
+    } catch (err) {
+      showAlert("reviewAlert", "error", err.message);
+    } finally {
+      setLoading(btnId, false, label);
+    }
+  }
+
+  // Event listeners
+  document.getElementById("reviewModal").addEventListener("click", e => {
+    if (e.target === e.currentTarget) closeReview();
+  });
+  document.getElementById("statusFilter").addEventListener("change", loadRegistrations);
+  document.getElementById("eventFilter").addEventListener("change",  loadRegistrations);
+  document.getElementById("searchInput").addEventListener("input", () => renderTable(allRegs));
+
+  // Init
+  loadEventFilter();
+  loadRegistrations();
+</script>
+</body>
+</html>

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StratosEvent — Admin Dashboard</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav class="nav-main">
+  <div class="nav-inner">
+    <a class="nav-brand" href="../index.html">⬡ Stratos<span>Event</span></a>
+    <div class="nav-links">
+      <a href="../index.html"><span>Events</span></a>
+      <a href="register.html"><span>Register</span></a>
+      <a href="admin-dashboard.html" class="active"><span>Dashboard</span></a>
+      <a href="admin-approval.html"><span>Approvals</span></a>
+    </div>
+  </div>
+</nav>
+
+<div class="page-wrapper">
+  <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem">
+    <div>
+      <h1>Admin Dashboard</h1>
+      <p>Overview of events, registrations, and attendance analytics.</p>
+    </div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+      <button class="btn btn-outline" onclick="loadDashboard()">↺ Refresh</button>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ New Event</button>
+    </div>
+  </div>
+
+  <!-- Alert Area -->
+  <div id="dashAlert"></div>
+
+  <!-- Stat Cards -->
+  <div class="grid-4" id="statCards" style="margin-bottom:2rem">
+    <div class="page-loader" style="grid-column:1/-1"><div class="loader"></div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('analytics', this)">Event Analytics</button>
+    <button class="tab-btn" onclick="switchTab('events', this)">Manage Events</button>
+    <button class="tab-btn" onclick="switchTab('attendance', this)">Attendance</button>
+  </div>
+
+  <div id="tab-analytics" class="tab-content">
+    <div id="analyticsTable"><div class="page-loader"><div class="loader"></div></div></div>
+  </div>
+
+  <div id="tab-events" class="tab-content" style="display:none">
+    <div id="eventsTable"><div class="page-loader"><div class="loader"></div></div></div>
+  </div>
+
+  <div id="tab-attendance" class="tab-content" style="display:none">
+    <div id="attendanceTable"><div class="page-loader"><div class="loader"></div></div></div>
+  </div>
+</div>
+
+<!-- ── Create / Edit Event Modal ─────────────────────────────── -->
+<div class="modal-overlay" id="eventModal">
+  <div class="modal-box" style="max-width:680px">
+    <div class="modal-header">
+      <h2 id="modalTitle">Create Event</h2>
+      <button class="modal-close" onclick="closeEventModal()">✕</button>
+    </div>
+    <div id="eventModalAlert"></div>
+    <form id="eventForm" novalidate>
+      <input type="hidden" id="editEventId" />
+      <div class="form-group">
+        <label class="form-label">Event Title *</label>
+        <input class="form-control" id="evTitle" type="text" placeholder="e.g. Cloud Summit 2026" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description *</label>
+        <textarea class="form-control" id="evDesc" rows="3" placeholder="Describe the event in detail (min 20 chars)" required></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Date *</label>
+          <input class="form-control" id="evDate" type="date" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Time *</label>
+          <input class="form-control" id="evTime" type="time" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Venue *</label>
+        <input class="form-control" id="evVenue" type="text" placeholder="Hall name, building, or Online" required />
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Category *</label>
+          <select class="form-control" id="evCategory">
+            <option>Conference</option>
+            <option>Workshop</option>
+            <option>Webinar</option>
+            <option>Seminar</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total Seats *</label>
+          <input class="form-control" id="evSeats" type="number" min="1" max="10000" placeholder="100" required />
+        </div>
+      </div>
+      <div class="form-group" id="statusGroup" style="display:none">
+        <label class="form-label">Status</label>
+        <select class="form-control" id="evStatus">
+          <option>Active</option>
+          <option>Completed</option>
+          <option>Cancelled</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:0.75rem;margin-top:0.5rem">
+        <button type="submit" class="btn btn-primary btn-lg" id="eventSubmitBtn" style="flex:1">Save Event</button>
+        <button type="button" class="btn btn-ghost" onclick="closeEventModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Check-In Modal ────────────────────────────────────────── -->
+<div class="modal-overlay" id="checkinModal">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-header">
+      <h2>Mark Attendance</h2>
+      <button class="modal-close" onclick="closeCheckin()">✕</button>
+    </div>
+    <div id="checkinAlert"></div>
+    <div class="form-group">
+      <label class="form-label">Registration ID</label>
+      <input class="form-control" id="checkinRegId" type="number" placeholder="Enter registration ID" />
+    </div>
+    <button class="btn btn-primary" style="width:100%" id="checkinBtn" onclick="doCheckIn()">Check In</button>
+  </div>
+</div>
+
+<script src="../js/api.js"></script>
+<script>
+  let dashData = null;
+
+  // ── Load Dashboard ───────────────────────────────────────────
+  async function loadDashboard() {
+    try {
+      const { data } = await api.get("/dashboard");
+      dashData = data;
+      renderStatCards(data.summary);
+      renderAnalytics(data.eventAttendance);
+      renderEventsTab(data.eventAttendance);
+      await loadAttendanceTab();
+    } catch (err) {
+      showAlert("dashAlert", "error", "Failed to load dashboard: " + err.message);
+    }
+  }
+
+  function renderStatCards(s) {
+    document.getElementById("statCards").innerHTML = `
+      <div class="stat-card">
+        <div class="stat-icon">⬡</div>
+        <div class="stat-value">${s.totalEvents}</div>
+        <div class="stat-label">Total Events</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-icon">◎</div>
+        <div class="stat-value">${s.totalRegistrations}</div>
+        <div class="stat-label">Registrations</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">✓</div>
+        <div class="stat-value">${s.approvedCount}</div>
+        <div class="stat-label">Approved</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">◉</div>
+        <div class="stat-value">${s.overallAttendancePercentage}%</div>
+        <div class="stat-label">Attendance Rate</div>
+      </div>
+    `;
+  }
+
+  function renderAnalytics(events) {
+    if (!events.length) {
+      document.getElementById("analyticsTable").innerHTML = `<div class="empty-state"><div class="empty-icon">⬡</div><p>No events yet.</p></div>`;
+      return;
+    }
+    document.getElementById("analyticsTable").innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>Event</th><th>Date</th><th>Category</th>
+            <th>Approved</th><th>Attended</th><th>Attendance %</th>
+          </tr></thead>
+          <tbody>
+            ${events.map(e => {
+              const pct = e.attendance_percentage;
+              const barClass = pct >= 70 ? '' : pct >= 40 ? 'amber' : 'red';
+              return `<tr>
+                <td><strong>${e.title}</strong></td>
+                <td>${formatDate(e.event_date)}</td>
+                <td>${categoryBadge(e.category)}</td>
+                <td>${e.approved_count}</td>
+                <td>${e.attended_count}</td>
+                <td style="min-width:140px">
+                  <div style="display:flex;align-items:center;gap:0.5rem">
+                    <div class="progress-wrap" style="flex:1">
+                      <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
+                    </div>
+                    <span style="font-size:0.8125rem;font-weight:600;white-space:nowrap">${pct}%</span>
+                  </div>
+                </td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderEventsTab(events) {
+    if (!events.length) {
+      document.getElementById("eventsTable").innerHTML = `<div class="empty-state"><div class="empty-icon">⬡</div><p>No events created.</p></div>`;
+      return;
+    }
+    document.getElementById("eventsTable").innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>Title</th><th>Date</th><th>Venue</th><th>Category</th>
+            <th>Seats</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody>
+            ${events.map(e => `<tr>
+              <td><strong>${e.title}</strong></td>
+              <td>${formatDate(e.event_date)}</td>
+              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.venue || '—'}</td>
+              <td>${categoryBadge(e.category)}</td>
+              <td>${e.total_seats - (e.approved_count || 0)} / ${e.total_seats}</td>
+              <td>${statusBadge(e.status || 'Active')}</td>
+              <td>
+                <div style="display:flex;gap:0.4rem">
+                  <button class="btn btn-ghost btn-sm" onclick="openEditModal(${e.id})">Edit</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteEvent(${e.id}, '${e.title.replace(/'/g,"\\'")}')">Delete</button>
+                </div>
+              </td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function loadAttendanceTab() {
+    try {
+      const { data } = await api.get("/attendance");
+      if (!data.length) {
+        document.getElementById("attendanceTable").innerHTML = `<div class="empty-state"><div class="empty-icon">◎</div><p>No attendance records yet.</p></div>`;
+        return;
+      }
+      document.getElementById("attendanceTable").innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <span style="color:var(--text-secondary);font-size:0.875rem">${data.length} check-in(s) recorded</span>
+          <button class="btn btn-outline btn-sm" onclick="openCheckin()">+ Mark Attendance</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Attendee</th><th>Email</th><th>Department</th>
+              <th>Event</th><th>Checked In At</th>
+            </tr></thead>
+            <tbody>
+              ${data.map(a => `<tr>
+                <td><strong>${a.full_name}</strong></td>
+                <td>${a.email}</td>
+                <td>${a.department || '—'}</td>
+                <td>${a.event_title}</td>
+                <td>${formatDateTime(a.checked_in_at)}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      document.getElementById("attendanceTable").innerHTML = `<div class="alert alert-error">Failed to load attendance.</div>`;
+    }
+  }
+
+  // ── Tabs ─────────────────────────────────────────────────────
+  function switchTab(name, btn) {
+    document.querySelectorAll(".tab-content").forEach(t => t.style.display = "none");
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById("tab-" + name).style.display = "";
+    btn.classList.add("active");
+  }
+
+  // ── Create Event Modal ───────────────────────────────────────
+  function openCreateModal() {
+    document.getElementById("modalTitle").textContent = "Create Event";
+    document.getElementById("editEventId").value = "";
+    document.getElementById("eventForm").reset();
+    document.getElementById("statusGroup").style.display = "none";
+    document.getElementById("eventModalAlert").innerHTML = "";
+    document.getElementById("eventModal").classList.add("open");
+  }
+
+  async function openEditModal(id) {
+    try {
+      const { data } = await api.get(`/events/${id}`);
+      document.getElementById("modalTitle").textContent = "Edit Event";
+      document.getElementById("editEventId").value = id;
+      document.getElementById("evTitle").value    = data.title;
+      document.getElementById("evDesc").value     = data.description;
+      document.getElementById("evDate").value     = data.event_date?.slice(0, 10);
+      document.getElementById("evTime").value     = data.event_time?.slice(0, 5);
+      document.getElementById("evVenue").value    = data.venue;
+      document.getElementById("evCategory").value = data.category;
+      document.getElementById("evSeats").value    = data.total_seats;
+      document.getElementById("evStatus").value   = data.status;
+      document.getElementById("statusGroup").style.display = "";
+      document.getElementById("eventModalAlert").innerHTML = "";
+      document.getElementById("eventModal").classList.add("open");
+    } catch (err) {
+      showAlert("dashAlert", "error", "Could not load event: " + err.message);
+    }
+  }
+
+  function closeEventModal() {
+    document.getElementById("eventModal").classList.remove("open");
+  }
+
+  document.getElementById("eventForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("editEventId").value;
+    const payload = {
+      title:       document.getElementById("evTitle").value,
+      description: document.getElementById("evDesc").value,
+      event_date:  document.getElementById("evDate").value,
+      event_time:  document.getElementById("evTime").value,
+      venue:       document.getElementById("evVenue").value,
+      category:    document.getElementById("evCategory").value,
+      total_seats: +document.getElementById("evSeats").value,
+      status:      document.getElementById("evStatus").value || "Active",
+    };
+    setLoading("eventSubmitBtn", true);
+    try {
+      if (id) {
+        await api.put(`/events/${id}`, payload);
+        showAlert("eventModalAlert", "success", "Event updated!");
+      } else {
+        await api.post("/events", payload);
+        showAlert("eventModalAlert", "success", "Event created!");
+      }
+      setTimeout(() => { closeEventModal(); loadDashboard(); }, 1500);
+    } catch (err) {
+      showAlert("eventModalAlert", "error", err.message);
+    } finally {
+      setLoading("eventSubmitBtn", false, "Save Event");
+    }
+  });
+
+  async function deleteEvent(id, title) {
+    if (!confirm(`Delete "${title}"? This will also remove all registrations.`)) return;
+    try {
+      await api.delete(`/events/${id}`);
+      showAlert("dashAlert", "success", `"${title}" deleted.`);
+      loadDashboard();
+    } catch (err) {
+      showAlert("dashAlert", "error", err.message);
+    }
+  }
+
+  // ── Check-In ─────────────────────────────────────────────────
+  function openCheckin()  { document.getElementById("checkinModal").classList.add("open"); }
+  function closeCheckin() { document.getElementById("checkinModal").classList.remove("open"); }
+
+  async function doCheckIn() {
+    const regId = document.getElementById("checkinRegId").value;
+    if (!regId) return showAlert("checkinAlert", "error", "Enter a registration ID.");
+    setLoading("checkinBtn", true);
+    try {
+      const res = await api.post("/attendance/checkin", { registration_id: +regId });
+      showAlert("checkinAlert", "success", res.message);
+      document.getElementById("checkinRegId").value = "";
+      loadDashboard();
+    } catch (err) {
+      showAlert("checkinAlert", "error", err.message);
+    } finally {
+      setLoading("checkinBtn", false, "Check In");
+    }
+  }
+
+  // Close modals on overlay click
+  document.getElementById("eventModal").addEventListener("click", e => { if (e.target === e.currentTarget) closeEventModal(); });
+  document.getElementById("checkinModal").addEventListener("click", e => { if (e.target === e.currentTarget) closeCheckin(); });
+
+  loadDashboard();
+</script>
+</body>
+</html>
